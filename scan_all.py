@@ -1,6 +1,7 @@
-"""Odds scanner, Phase 1 (single-file build): FanDuel NBA alt spreads with
-10-25 pts of room, priced vs Pinnacle + a fat-tailed margin model.
-Run: python scan_all.py"""
+"""Odds scanner (single-file build): FanDuel NBA alt spreads with 10-25 pts of
+room. Fair price = fat-tailed margin model centred on Pinnacle, tail width
+fitted to other books' alt ladders. Run: python scan_all.py"""
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from math import isclose
 from scipy.stats import t as student_t
@@ -38,9 +39,9 @@ def ev(fair_win, fair_push, dec):
 class MarginModel:
     """Home-minus-away final margin ~ mu + scale * T(df), treated as integer.
 
-    df and sd are ASSUMPTIONS for Phase 1 (NBA margins vs the spread have an
-    SD of roughly 12-13 points with fatter-than-normal tails). Phase 2 should
-    replace them with values fitted on historical results."""
+    sd (tail width) is fitted per game to other books' alt ladders where
+    possible, else defaults to 12.5 pts. df=6 gives fatter-than-normal tails,
+    since NBA blowouts happen more often than a bell curve predicts."""
 
     def __init__(self, sd=12.5, df=6):
         self.df = df
@@ -124,6 +125,9 @@ ODDS_MIN, ODDS_MAX = 1.05, 1.35
 ROOM_MIN, ROOM_MAX = 10, 25
 MIN_CONSENSUS_BOOKS = 3
 MIN_SCORE = 55
+DEFAULT_SD = 12.5                            # fallback tail width (points)
+SD_GRID = [x / 2 for x in range(16, 41)]     # 8.0 .. 20.0 pts searched when fitting
+MIN_LADDER_POINTS = 8                        # other-book alt prices needed to fit tails
 # Pick'em / DFS apps don't post real two-way prices; never use them as a fair line.
 NOT_PRICES = {"prizepicks", "underdog", "sleeper", "dabble", "pick6", "dst_propbuilder",
               "thrillzz", "sportzino", "courtside", "rebet"}
@@ -153,30 +157,64 @@ def _pairs(book):
     return out, mains
 
 
-def _fit_model(home, books):
-    """Anchor the margin model on Pinnacle's main line; fall back to the
-    median of other books' main lines. Returns (model, home_main_line, source)."""
-    def fit(mains):
-        for side_a, side_b in mains:
-            hs = side_a if side_a[0] == home else side_b if side_b[0] == home else None
-            if hs:
-                m = MarginModel()
-                m.fit_to_main(hs[1], hs[2])
-                return m, hs[1]
-        return None, None
+def _home_main(home, mains):
+    for side_a, side_b in mains:
+        hs = side_a if side_a[0] == home else side_b if side_b[0] == home else None
+        if hs:
+            return hs[1], hs[2]  # (home line, fair home cover prob)
+    return None
 
+
+def _anchor(home, books):
+    """Main line to centre the model on: Pinnacle, else the most common main
+    line across other books (fair prob averaged). Returns (line, fair, source)."""
     if SHARP_BOOK in books:
-        m, line = fit(books[SHARP_BOOK][1])
-        if m:
-            return m, line, "Pinnacle"
-    fits = [fit(mains) for key, (_, mains) in books.items()
-            if key not in NOT_PRICES | {BET_BOOK}]
-    fits = [f for f in fits if f[0]]
-    if len(fits) < MIN_CONSENSUS_BOOKS:
-        return None, None, None
-    m = MarginModel()
-    m.mu = median(f[0].mu for f in fits)
-    return m, median(f[1] for f in fits), f"{len(fits)}-book consensus"
+        hm = _home_main(home, books[SHARP_BOOK][1])
+        if hm:
+            return hm[0], hm[1], "Pinnacle"
+    mains = [hm for key, (_, ms) in books.items() if key not in NOT_PRICES | {BET_BOOK}
+             for hm in [_home_main(home, ms)] if hm]
+    if len(mains) < MIN_CONSENSUS_BOOKS:
+        return None
+    line = Counter(l for l, _ in mains).most_common(1)[0][0]
+    fair = sum(f for l, f in mains if l == line) / sum(1 for l, _ in mains if l == line)
+    return line, fair, f"{len(mains)}-book consensus"
+
+
+def _ladder(home, books):
+    """Every other book's devigged home-cover price across its alt ladder."""
+    return [(key, point, fp) for key, (pairs, _) in books.items()
+            if key not in NOT_PRICES | {BET_BOOK}
+            for (team, point), (_, fp) in pairs.items()
+            if team == home and 0.015 < fp < 0.985]
+
+
+def _fit_model(home, books):
+    """Centre the margin model on the anchor main line, then pick the tail
+    width (SD) that best reproduces other books' alt-ladder prices. Falls back
+    to an assumed SD when there isn't enough ladder data.
+    Returns (model, home_main_line, anchor_source, tails_source)."""
+    anc = _anchor(home, books)
+    if not anc:
+        return None, None, None, None
+    line, fair, source = anc
+    pts = _ladder(home, books)
+    if len(pts) < MIN_LADDER_POINTS or len({k for k, _, _ in pts}) < 2:
+        m = MarginModel(sd=DEFAULT_SD)
+        m.fit_to_main(line, fair)
+        return m, line, source, f"assumed SD {DEFAULT_SD:g}"
+    best = None
+    for sd in SD_GRID:
+        m = MarginModel(sd=sd)
+        m.fit_to_main(line, fair)
+        err = 0.0
+        for _, pt, fp in pts:
+            w, p = m.home_cover(pt)
+            err += (w / (1 - p) - fp) ** 2  # books' devigged prices exclude pushes
+        if best is None or err < best[0]:
+            best = (err, sd, m)
+    n_books = len({k for k, _, _ in pts})
+    return best[2], line, source, f"market-fit SD {best[1]:g} ({len(pts)} prices, {n_books} books)"
 
 
 def scan_event(ev_meta, odds):
@@ -184,9 +222,12 @@ def scan_event(ev_meta, odds):
     books = {bk["key"]: _pairs(bk) for bk in odds.get("bookmakers", [])
              if not bk.get("pregame_only")}
     stats = {"fd_prices": 0, "in_range": 0, "no_fair": 0, "neg_ev": 0}
+    game = f"{away} @ {home}"
     if BET_BOOK not in books:
-        return [], stats
-    model, home_main, anchor = _fit_model(home, books)
+        return [], stats, {"game": game, "main": None, "anchor": "no FanDuel prices", "tails": "—"}
+    model, home_main, anchor, tails = _fit_model(home, books)
+    info = {"game": game, "main": home_main, "home": home,
+            "anchor": anchor or "no reliable main line", "tails": tails or "—"}
     cands = []
     for (team, point), (dec, _) in books[BET_BOOK][0].items():
         stats["fd_prices"] += 1
@@ -213,24 +254,25 @@ def scan_event(ev_meta, odds):
             continue
         opp = away if team == home else home
         cands.append({
-            "game": f"{away} @ {home}", "start": ev_meta["commence_time"],
+            "game": game, "start": ev_meta["commence_time"], "tails": tails,
             "bet": f"{team} {point:+g}", "team": team, "opponent": opp,
             "odds": round(dec, 3), "main_line": main_for_team, "room": room,
             "model_win": win, "cons_win": cons_win, "n_books": len(cons),
             "push": push, "fair_win": fair_win, "breakeven": 1 / dec,
             "ev": e, "anchor": anchor,
         })
-    return cands, stats
+    return cands, stats, info
 
 
 def score(c):
-    """Phase 1 market-only score, 0-100."""
+    """Market-only score, 0-100."""
     parts = {
         "Market edge (EV)": 45 * min(c["ev"] / 0.05, 1),
         "Books agreeing": 15 * min(c["n_books"] / 6, 1),
         "Model vs books agree": 0 if c["cons_win"] is None else
             15 * max(0.0, 1 - abs(c["model_win"] - c["cons_win"]) / 0.04),
-        "Pinnacle anchor": 10 if c["anchor"] == "Pinnacle" else 0,
+        "Fair-line quality": (5 if c["anchor"] == "Pinnacle" else 0)
+            + (5 if c["tails"].startswith("market-fit") else 0),
         "Points of room": 15 * min(max((c["room"] - ROOM_MIN) / (ROOM_MAX - ROOM_MIN), 0), 1),
     }
     return round(sum(parts.values())), parts
@@ -240,9 +282,11 @@ def run(client, now=None):
     now = now or datetime.now(timezone.utc)
     events = [e for e in client.events(SPORT)
               if not e.get("live") and now < _parse_time(e["commence_time"]) <= now + timedelta(hours=24)]
-    all_c, totals = [], {"games": len(events), "fd_prices": 0, "in_range": 0, "no_fair": 0, "neg_ev": 0}
+    all_c, totals = [], {"games": len(events), "fd_prices": 0, "in_range": 0, "no_fair": 0,
+                         "neg_ev": 0, "game_info": []}
     for e in events:
-        cands, st = scan_event(e, client.odds(SPORT, e["id"], MARKETS))
+        cands, st, info = scan_event(e, client.odds(SPORT, e["id"], MARKETS))
+        totals["game_info"].append(info)
         all_c += cands
         for k, v in st.items():
             totals[k] += v
@@ -289,7 +333,7 @@ def markdown(cands, totals, now, min_score, quota):
             "Books agreeing": f"{pick['n_books']} books price this exact line",
             "Model vs books agree": "no other books at this line" if pick["cons_win"] is None
                 else f"model {pct(pick['model_win'])} vs books {pct(pick['cons_win'])}",
-            "Pinnacle anchor": f"fair line from {pick['anchor']}",
+            "Fair-line quality": f"centre: {pick['anchor']} · tails: {pick['tails']}",
             "Points of room": f"{pick['room']:g} pts beyond main line",
         }
         for k, v in pick["parts"].items():
@@ -311,18 +355,26 @@ def markdown(cands, totals, now, min_score, quota):
                 flags.append("same game as pick")
             if c["cons_win"] is None:
                 flags.append("model only")
+            if not c["tails"].startswith("market-fit"):
+                flags.append("assumed tails")
             L.append(f"| {i} | {c['bet']} | {c['odds']:.2f} | {c['room']:g} | {pct(c['fair_win'])} | "
                      f"+{pct(c['ev'])} | {c['score']} | {', '.join(flags) or '—'} |")
         L.append("")
-    L += [f"**Skipped:** {totals['neg_ev']} in range but not +EV · {totals['no_fair']} with no reliable fair line", "",
-          "<sub>Phase 1: market-only scoring. Margin model assumes SD 12.5 pts with fat tails "
-          "(to be fitted on historical games in Phase 2). Injuries, rest and blowout risk not yet scored — "
-          "check the news before betting.</sub>"]
+    L += [f"**Skipped:** {totals['neg_ev']} in range but not +EV · {totals['no_fair']} with no reliable fair line", ""]
+    if totals.get("game_info"):
+        L += ["## Games", "", "| Game | Home main line | Centre | Tail width |", "|---|---|---|---|"]
+        for g in totals["game_info"]:
+            main = f"{g['main']:+g}" if g.get("main") is not None else "—"
+            L.append(f"| {g['game']} | {main} | {g['anchor']} | {g['tails']} |")
+        L.append("")
+    L += ["<sub>Market-only scoring. Tail width = how far final margins typically land from the "
+          "expected margin, fitted to other books' alt ladders (higher = more blowouts priced in). "
+          "Injuries, rest and blowout risk not yet scored — check the news before betting.</sub>"]
     return "\n".join(L) + "\n", pick
 
 
 FIELDS = ["scan_time", "game", "start", "bet", "odds", "main_line", "room", "model_win",
-          "cons_win", "n_books", "push", "fair_win", "breakeven", "ev", "anchor", "score"]
+          "cons_win", "n_books", "push", "fair_win", "breakeven", "ev", "anchor", "tails", "score"]
 
 
 def write_csv(path, rows, now, append=False):
