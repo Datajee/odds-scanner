@@ -1,26 +1,28 @@
-# 🏀 NBA Alt-Spread Scan — Wed Oct 28 · 5:25AM ET
+# 🏀 NBA Alt-Spread Scan — Wed Oct 28 · 5:35AM ET
 
-*Games: 12 · FanDuel spread prices: 1406 · In odds + room range: 221 · Positive EV: 8 · PropLine quota left: 976 of 1000*
+*Games: 12 · FanDuel spread prices: 1406 · In odds + room range: 220 · Positive EV: 0 · PropLine quota left: 960 of 1000*
 
 ## ⏸️ Sit out today — no bet cleared the bar
 
-Best score was 48/100 (need 55).
+No FanDuel alt spread was +EV in range.
 
-**Safest +EV alternative:** Atlanta Hawks +13.5 at 1.10 (92.5% fair, +1.8% EV, score 37)
+**Skipped:** 220 in range but not +EV · 0 with no reliable fair line
 
-## Best candidates (below the bar)
+## Games
 
-| # | Bet | Odds | Room | Fair | EV | Score | Flag |
-|---|---|---|---|---|---|---|---|
-| 1 | Utah Jazz +26.5 | 1.15 | 14.5 | 89.7% | +3.1% | 48 | model only |
-| 2 | Atlanta Hawks +11.5 | 1.14 | 14.5 | 90.2% | +3.1% | 47 | model only |
-| 3 | Utah Jazz +28.5 | 1.10 | 16.5 | 92.1% | +1.8% | 38 | model only |
-| 4 | Atlanta Hawks +13.5 | 1.10 | 16.5 | 92.5% | +1.8% | 37 | model only |
-| 5 | Philadelphia 76ers +11.5 | 1.10 | 16 | 92.0% | +1.2% | 32 | model only |
-| 6 | Detroit Pistons +9.5 | 1.11 | 15.5 | 91.0% | +1.1% | 31 | model only |
-| 7 | San Antonio Spurs +3.5 | 1.11 | 15.5 | 91.0% | +1.1% | 31 | model only |
-| 8 | Los Angeles Lakers +11.5 | 1.10 | 16 | 91.4% | +1.0% | 30 | model only |
+| Game | Home main line | Centre | Tail width |
+|---|---|---|---|
+| Washington Wizards @ Cleveland Cavaliers | -9.5 | Pinnacle | market-fit SD 15.5 (889 prices, 75 books) |
+| Charlotte Hornets @ Detroit Pistons | -6 | Pinnacle | market-fit SD 15 (851 prices, 73 books) |
+| Miami Heat @ Atlanta Hawks | -3 | Pinnacle | market-fit SD 16.5 (901 prices, 75 books) |
+| Philadelphia 76ers @ Indiana Pacers | +4.5 | Pinnacle | market-fit SD 16.5 (862 prices, 74 books) |
+| Orlando Magic @ Toronto Raptors | -5 | Pinnacle | market-fit SD 16 (866 prices, 75 books) |
+| Golden State Warriors @ Minnesota Timberwolves | -3.5 | Pinnacle | market-fit SD 16.5 (666 prices, 74 books) |
+| Houston Rockets @ Milwaukee Bucks | +8.5 | Pinnacle | market-fit SD 15 (860 prices, 74 books) |
+| Denver Nuggets @ New Orleans Pelicans | +5 | Pinnacle | market-fit SD 16 (906 prices, 75 books) |
+| New York Knicks @ Chicago Bulls | +7 | Pinnacle | market-fit SD 15.5 (819 prices, 74 books) |
+| San Antonio Spurs @ Utah Jazz | +12 | Pinnacle | market-fit SD 15.5 (885 prices, 75 books) |
+| Oklahoma City Thunder @ Dallas Mavericks | +6 | Pinnacle | market-fit SD 16 (837 prices, 74 books) |
+| Los Angeles Lakers @ Los Angeles Clippers | +4.5 | Pinnacle | market-fit SD 16 (624 prices, 50 books) |
 
-**Skipped:** 213 in range but not +EV · 0 with no reliable fair line
-
-<sub>Phase 1: market-only scoring. Margin model assumes SD 12.5 pts with fat tails (to be fitted on historical games in Phase 2). Injuries, rest and blowout risk not yet scored — check the news before betting.</sub>
+<sub>Market-only scoring. Tail width = how far final margins typically land from the expected margin, fitted to other books' alt ladders (higher = more blowouts priced in). Injuries, rest and blowout risk not yet scored — check the news before betting.</sub>
