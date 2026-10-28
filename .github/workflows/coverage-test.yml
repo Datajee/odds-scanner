@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -15,7 +15,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - run: python scripts/coverage_test.py
+      - run: |
+          mkdir -p reports
+          python scripts/coverage_test.py | tee reports/coverage.md
         env:
           PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
           SGO_API_KEY: ${{ secrets.SGO_API_KEY }}
+      - name: Save report to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports
+          git commit -m "Coverage report" || echo "No changes"
+          git push
